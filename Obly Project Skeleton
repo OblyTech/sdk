@@ -1,0 +1,158 @@
+# Obly — Behavioral On-Chain Intelligence Engine
+# Project Skeleton (Backend API + Core Engine)
+# You can split these into separate files in a real repo.
+
+# ============================
+# app/main.py
+# ============================
+from fastapi import FastAPI
+from app.api.routes import router
+
+app = FastAPI(title="Obly API", version="0.1.0")
+
+app.include_router(router)
+
+@app.get("/")
+def root():
+    return {"status": "ok", "service": "obly"}
+
+
+# ============================
+# app/api/routes.py
+# ============================
+from fastapi import APIRouter
+from app.core.behavior import extract_behavioral_features
+from app.core.fingerprint import build_actor_fingerprint
+from app.core.signals import score_behavior
+
+router = APIRouter(prefix="/api")
+
+@router.post("/analyze-wallet")
+def analyze_wallet(tx_history: list[dict]):
+    features = extract_behavioral_features(tx_history)
+    fingerprint = build_actor_fingerprint(features)
+    signals = score_behavior(features)
+
+    return {
+        "features": features,
+        "fingerprint": fingerprint,
+        "signals": signals,
+    }
+
+
+# ============================
+# app/core/behavior.py
+# ============================
+import statistics
+
+def extract_behavioral_features(tx_history: list[dict]) -> dict:
+    timestamps = [tx["timestamp"] for tx in tx_history]
+
+    if len(timestamps) < 2:
+        return {"activity_rate": 0, "cadence": None}
+
+    deltas = [timestamps[i+1] - timestamps[i] for i in range(len(timestamps)-1)]
+
+    return {
+        "tx_count": len(tx_history),
+        "activity_rate": len(tx_history) / max(1, (max(timestamps) - min(timestamps))),
+        "avg_delta": statistics.mean(deltas),
+        "std_delta": statistics.pstdev(deltas),
+    }
+
+
+# ============================
+# app/core/fingerprint.py
+# ============================
+import hashlib
+
+def build_actor_fingerprint(features: dict) -> str:
+    raw = ":".join(str(v) for v in features.values())
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+# ============================
+# app/core/signals.py
+# ============================
+def score_behavior(features: dict) -> dict:
+    cadence = features.get("avg_delta")
+    tx_count = features.get("tx_count", 0)
+
+    return {
+        "is_high_frequency": cadence is not None and cadence < 30,
+        "is_repetitive": features.get("std_delta", 0) < 5,
+        "activity_class": "bot-like" if tx_count > 100 else "human-like",
+    }
+
+
+# ============================
+# app/core/similarity.py
+# ============================
+import numpy as np
+
+def behavioral_similarity(vec_a: list[float], vec_b: list[float]) -> float:
+    a = np.array(vec_a)
+    b = np.array(vec_b)
+
+    if np.linalg.norm(a) == 0 or np.linalg.norm(b) == 0:
+        return 0.0
+
+    return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
+
+
+# ============================
+# app/models/actor.py
+# ============================
+from pydantic import BaseModel
+
+class ActorProfile(BaseModel):
+    wallet: str
+    fingerprint: str
+    behavior_class: str
+    activity_rate: float
+
+
+# ============================
+# app/pipelines/normalizer.py
+# ============================
+def normalize_tx(raw_tx: dict) -> dict:
+    return {
+        "hash": raw_tx.get("hash"),
+        "from": raw_tx.get("from"),
+        "to": raw_tx.get("to"),
+        "value": float(raw_tx.get("value", 0)),
+        "timestamp": int(raw_tx.get("timestamp", 0)),
+        "chain": raw_tx.get("chain", "unknown"),
+    }
+
+
+# ============================
+# app/pipelines/indexer_stub.py
+# ============================
+def fetch_wallet_txs(wallet: str) -> list[dict]:
+    # Stub: replace with real indexer integration
+    return []
+
+
+# ============================
+# requirements.txt
+# ============================
+# fastapi
+# uvicorn
+# numpy
+# pydantic
+
+
+# ============================
+# run (dev)
+# ============================
+# uvicorn app.main:app --reload
+
+
+# ============================
+# FUTURE MODULES
+# ============================
+# - graph_engine.py   -> actor interaction graphs
+# - timing_engine.py  -> advanced rhythm detection
+# - clustering.py     -> coordinated wallet detection
+# - alerts.py         -> webhook + alerting system
